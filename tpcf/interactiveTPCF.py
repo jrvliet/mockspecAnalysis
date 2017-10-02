@@ -71,6 +71,9 @@ class tpcfRun(object):
         self.loSFR = -12
         self.hiSFR = -9
 
+        # Filename 
+        self.outname = 'tpcfTesting.h5'
+
     def print_run(self):
         s = ''
         s += '\nTPCF Run Properties: \n'
@@ -109,9 +112,13 @@ class tpcfRun(object):
         s += '\t\tImpact Limits = {0:f} - {1:f}\n'.format(self.dLo,self.dHi)
         s += '\t\tInclination Limits = {0:f} - {1:f}\n'.format(self.iLo,self.iHi)
 
+        s += '\tOutput file = {0:s}\n'.format(self.outname)
+    
         s += '\tIons = {0:s}\n'.format(', '.join(self.ions))
         
         return s
+
+    
         
 def galaxy_selection(run):
     '''
@@ -208,6 +215,11 @@ def read_input():
             f.readline()
         run.binSize = int(f.readline().split()[0])
         run.bootNum = int(f.readline().split()[0])
+
+        # Read in the output filename
+        for i in range(2):
+            f.readline()
+        run.outName = f.readline().split()[0]+'.h5'
 
         # Read in ions
         for i in range(2):
@@ -397,6 +409,17 @@ def cleanup(paths):
         sp.call(command.format(path),shell=True)
 
 
+def write_tpcf(df,header,run):
+    '''
+    Writes the full tpcf to file with run metadata
+    '''
+
+    with pd.HDFStore(run.outName) as store:
+        store.put('data',df)
+        store.get_storer('data').attrs.metadata = run.__dict__
+        
+    
+        
 
 if __name__ == '__main__':
 
@@ -438,10 +461,13 @@ if __name__ == '__main__':
 
     header = 'vel '+' '.join(run.ions)
     header = header.split()
+    tpcfFull.columns = header
     #header = run.ions
     print(header)
     print(tpcfFull.shape)
-    tpcfFull.to_csv('tpcfFull.csv',header=header,index=False)
+
+    write_tpcf(tpcfFull,header,run)
+    #tpcfFull.to_csv('tpcfFull.csv',header=header,index=False)
     cleanup(allVelsPath)
 
 
