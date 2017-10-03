@@ -56,7 +56,7 @@ class tpcfRun(object):
         self.hiSFR = -9
 
         # Filename 
-        self.outname = 'tpcfTesting.h5'
+        self.outName = 'tpcfTesting.h5'
 
     def print_run(self):
         s = ''
@@ -96,7 +96,7 @@ class tpcfRun(object):
         s += '\t\tImpact Limits = {0:f} - {1:f}\n'.format(self.dLo,self.dHi)
         s += '\t\tInclination Limits = {0:f} - {1:f}\n'.format(self.iLo,self.iHi)
 
-        s += '\tOutput file = {0:s}\n'.format(self.outname)
+        s += '\tOutput file = {0:s}\n'.format(self.outName)
     
         s += '\tIons = {0:s}\n'.format(', '.join(self.ions))
         
@@ -117,7 +117,7 @@ def control(run):
     bins,labels = sample_bins(run,maxVel)#,tpcfProp)
     tpcfs = sample_tpcf(run,allVelsPath,allVelsShapes,bins,labels)
     
-    means,stds = bootstrap(run)
+    #means,stds = bootstrap(run)
 
     # Put full TPCFs into dataframe
     tpcfFull = pd.DataFrame(index=labels)
@@ -186,7 +186,12 @@ def galaxy_selection(run):
 
 
         fullSelection = df[timeSelection & sfrSelection & massSelection]['a']
-        print(galNum,timeSelection.sum(),run.loA,run.hiA)
+        numSnaps = len(fullSelection)
+        if numSnaps==1:
+            print('Halo {0:d} - Using {1:d} snapshot'.format(galNum,numSnaps))
+        else:
+            print('Halo {0:d} - Using {1:d} snapshots'.format(galNum,numSnaps))
+
         
         for a in fullSelection:
             selection.append((galNum,'{0:.3f}'.format(a)))
@@ -271,7 +276,6 @@ def select_los(run,selections):
     iDirs,iDirsList = find_inclinations(run,selections)
         
     print('iDirs: ',iDirs)
-    print('iDirsList; ',iDirsList)
     los = pd.DataFrame(columns=pd.MultiIndex.from_tuples(iDirsList),
                         index=range(1000))
     
@@ -374,8 +378,6 @@ def sample_tpcf(run,samplePaths,sampleShapes,bins,labels,bootstrap=0):
     '''
     
     tpcfs = []
-    print('Paths = ',samplePaths)
-    print('Shapes = ',sampleShapes)
     for sPath,sShape in zip(samplePaths,sampleShapes):
         sample = np.memmap(sPath,dtype='float',mode='r',
                             shape=sShape)
@@ -434,7 +436,6 @@ def cleanup(paths):
     '''
     command = 'rm {0:s}'
     for path in paths:
-        print(command.format(path))
         sp.call(command.format(path),shell=True)
 
 
@@ -453,7 +454,7 @@ def write_tpcf(df,header,run):
 if __name__ == '__main__':
 
     run = read_input()
-    run.loc = '/home/sims/vela2b/'
+    #run.loc = '/home/sims/vela2b/'
     print(run.print_run())
 
 
