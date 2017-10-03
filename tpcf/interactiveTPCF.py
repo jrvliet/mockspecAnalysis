@@ -18,22 +18,6 @@ import decimal
 import os
 
 
-class tpcfProps(object):
-    '''
-    Class to define settings for TPCF
-    '''
-    
-    def __init__ (self):
-        self.ewLo = 0.
-        self.ewHi = 10.
-        self.dLo = 0.
-        self.dHi = 200.
-        self.azLo = 0.
-        self.azHi = 90.
-        self.binSize = 10.
-        self.bootNum = 1000
-
-
 class tpcfRun(object):
     '''
     Class that holds the settings for this interactive run
@@ -117,6 +101,51 @@ class tpcfRun(object):
         s += '\tIons = {0:s}\n'.format(', '.join(self.ions))
         
         return s
+
+def control(run):
+    
+    '''
+    Main function for the interactive TPCF
+    Controls everything
+    '''
+
+    selections = galaxy_selection(run)
+
+    los = select_los(run,selections)
+    allVelsPath,allVelsShapes,maxVel = build_sample(run,los)
+
+    bins,labels = sample_bins(run,maxVel)#,tpcfProp)
+    tpcfs = sample_tpcf(run,allVelsPath,allVelsShapes,bins,labels)
+    
+    means,stds = bootstrap(run)
+
+    # Put full TPCFs into dataframe
+    tpcfFull = pd.DataFrame(index=labels)
+    tpcfFull = pd.DataFrame(labels)
+    for ion,tpcf in zip(run.ions,tpcfs):
+        # Pad the array with nans
+        padWidth = len(bins)-len(tpcf)
+        if padWidth>0:
+            tpcf = np.pad(tpcf,(0,padWidth),mode='constant',
+                            constant_values= (np.nan))
+        elif padWidth<0:
+            tpcf = tpcf[:len(bins)]
+        
+        tpcfFull[ion] = tpcf
+
+
+    header = 'vel '+' '.join(run.ions)
+    header = header.split()
+    tpcfFull.columns = header
+
+    write_tpcf(tpcfFull,header,run)
+
+    cleanup(allVelsPath)
+
+
+
+
+
 
     
         
@@ -323,14 +352,14 @@ def build_sample(run,los):
     return allVelsPaths,allVelsShapes,maxVel
     
 
-def sample_bins(run,maxVel,tpcfProp):
+def sample_bins(run,maxVel):#,tpcfProp):
     ''' 
     Generates the velocity bins and labels to making the tpcf
     '''
 
-    nbins = int(maxVel/tpcfProp.binSize)
-    endPoint = tpcfProp.binSize*(nbins+1)
-    bins = np.arange(0,endPoint,tpcfProp.binSize)
+    nbins = int(maxVel/run.binSize)
+    endPoint = run.binSize*(nbins+1)
+    bins = np.arange(0,endPoint,run.binSize)
 
     labels = [(bins[i]+bins[i+1])/2. for i in range(nbins)]
     lastLabel = labels[-1] + (labels[1]-labels[0])
@@ -426,51 +455,7 @@ if __name__ == '__main__':
     run = read_input()
     run.loc = '/home/sims/vela2b/'
     print(run.print_run())
-    tpcfProp = tpcfProps()
-    tpcfProp.bootNum = 10
-    
-    selections = galaxy_selection(run)
-    print(selections)
 
 
-    los = select_los(run,selections)
-    allVelsPath,allVelsShapes,maxVel = build_sample(run,los)
-    
-
-    bins,labels = sample_bins(run,maxVel,tpcfProp)
-    tpcfs = sample_tpcf(run,allVelsPath,allVelsShapes,bins,labels)
-
-    # Put full TPCFs into dataframe
-    tpcfFull = pd.DataFrame(index=labels)
-    tpcfFull = pd.DataFrame(labels)
-    #print(bins,labels)
-    #print()
-    #print(len(bins),len(labels))
-    for ion,tpcf in zip(run.ions,tpcfs):
-        # Pad the array with nans
-        print(ion,len(tpcf))
-        padWidth = len(bins)-len(tpcf)
-        if padWidth>0:
-            tpcf = np.pad(tpcf,(0,padWidth),mode='constant',
-                            constant_values= (np.nan))
-        elif padWidth<0:
-            tpcf = tpcf[:len(bins)]
-        
-        print(len(bins),len(tpcf),padWidth)
-        tpcfFull[ion] = tpcf
-
-    header = 'vel '+' '.join(run.ions)
-    header = header.split()
-    tpcfFull.columns = header
-    #header = run.ions
-    print(header)
-    print(tpcfFull.shape)
-
-    write_tpcf(tpcfFull,header,run)
-    #tpcfFull.to_csv('tpcfFull.csv',header=header,index=False)
-    cleanup(allVelsPath)
-
-
-
-
+    control(run)
 
