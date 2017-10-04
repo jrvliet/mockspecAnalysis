@@ -33,6 +33,7 @@ class tpcfRun(object):
         self.dLo = 0.
         self.dHi = 200.
         self.loc = '/mnt/cluster/abs/cgm/vela2b/'
+        self.runBoot = 0
         self.binSize = 10.
         self.bootNum = 1000
         self.ncores = 4
@@ -120,8 +121,11 @@ def control(run):
     
     print(allVelsShapes)
     print(type(tpcfs),len(tpcfs),len(bins),len(labels))
-    print('Begin bootstrap')
-    means,stds = bootstrap(run,allVelsPath,allVelsShapes,bins,labels)
+    if run.runBoot == 1:
+        print('Begin bootstrap')
+        means,stds = bootstrap(run,allVelsPath,allVelsShapes,bins,labels)
+        print('Means shape = ',means.shape)
+        print('Std shape = ',stds.shape)
 
     # Put full TPCFs into dataframe
     tpcfFull = pd.DataFrame(index=labels)
@@ -134,24 +138,28 @@ def control(run):
         if padWidth>0:
             tpcf = np.pad(tpcf,(0,padWidth),mode='constant',
                             constant_values= (np.nan))
-            mean = np.pad(means[:,i],(0,padWidth),mode='constant',
-                            constant_values= (np.nan))
-            std = np.pad(std[:,i],(0,padWidth),mode='constant',
-                            constant_values= (np.nan))
+            if run.runBoot==1:
+                mean = np.pad(means[:,i],(0,padWidth),mode='constant',
+                                constant_values= (np.nan))
+                std = np.pad(std[:,i],(0,padWidth),mode='constant',
+                                constant_values= (np.nan))
         elif padWidth<0:
             tpcf = tpcf[:len(bins)]
-            mean = means[:len(bins),i]
-            std = stds[:len(bins),i]
+            if run.runBoot==1:
+                mean = means[:len(bins),i]
+                std = stds[:len(bins),i]
         
         tpcfFull[ion,'full'] = tpcf
-        tpcfFull[ion,'mean'] = mean
-        tpcfFull[ion,'std'] = std
+        if run.runBoot==1:
+            tpcfFull[ion,'mean'] = mean
+            tpcfFull[ion,'std'] = std
+        
 
 
     #header = 'vel '+' '.join(run.ions)
     #header = header.split()
     #tpcfFull.columns = header
-    tpcf.index.name = 'vel'
+    tpcfFull.index.name = 'vel'
 
     write_tpcf(tpcfFull,run)
 
@@ -259,6 +267,7 @@ def read_input():
         for i in range(2):
             f.readline()
         run.binSize = int(f.readline().split()[0])
+        run.runBoot = int(f.readline().split()[0])
         run.bootNum = int(f.readline().split()[0])
         run.ncores = int(f.readline().split()[0])
 
@@ -404,6 +413,22 @@ def sample_tpcf(run,samplePaths,sampleShapes,bins,labels,resample=0):
         tpcfs.append(tpcf)
     return tpcfs
     
+
+def bootstrap_tpcf(run,sample,shape,bins,labels):
+    '''
+    Constructs the TPCF during bootstraps
+    '''
+
+    # Resample the data set with replacement
+    sample = sample[:,np.random.choice(sample.shape[1],
+                    sample.shape[1],replace=True)]
+    flat = sample.flatten()
+    flat = flat[~np.isnan(flat)]
+    tpcf = np.sort(np.bincount(np.digitize(flat,bins)))[::-1]
+    tpcf = tpcf/tpcf.sum()
+    
+    return tpcf
+
     
 def bootstrap(run,allVelsPaths,allVelsShapes,bins,labels):
 
@@ -414,35 +439,32 @@ def bootstrap(run,allVelsPaths,allVelsShapes,bins,labels):
 
     mempath = os.path.join('./tmp/','bootstrap.mmap')
     bootArr = np.memmap(mempath,dtype='float',
-                        shape=(run.bootNum,len(bins)),mode='w+')
-    bootMean = np.zeros((len(bins),len(run.ions)))
+                        shape=(len(bins)+1,run.bootNum),mode='w+')
+    bootMean = np.zeros((len(bins)+1,len(run.ions)))
     bootStd = np.zeros_like(bootMean)
 
     for i,(ion,path,shape) in enumerate(
                                 zip(run.ions,allVelsPaths,allVelsShapes)):
         print(ion)
+        sample = np.memmap(path,dtype='float',mode='r',shape=shape)
+        #run.ncores=1
         jl.Parallel(n_jobs=run.ncores,verbose=5)(
-            jl.delayed(bstrap)(bootArr,path,shape,bins,labels,bootArr,j)
+            jl.delayed(bstrap)(run,sample,shape,bins,labels,bootArr,j)
             for j in range(run.bootNum))
             
         print('Finished bootstrap for {0:s}'.format(ion))
-        bootMean[:,i] = np.nanmean(bootArr,axis=0)
-        bootStd[:,i] = np.nanstd(bootArr,axis=0)
+        bootMean[:,i] = np.nanmean(bootArr,axis=1)
+        bootStd[:,i] = np.nanstd(bootArr,axis=1)
         
     return bootMean,bootStd
         
 
 @nb.jit
-def bstrap(run,path,shape,bins,labels,bootArr,i):
+def bstrap(run,sample,shape,bins,labels,bootArr,i):
 
     resample = 1
-    paths = [path]
-    shapes = [shape]
-    tpcf = sample_tpcf(run,paths,shapes,bins,labels,resample)
-    bootArr[i,:len(tpcf)] = tpcf
-        
-    
-    
+    tpcf = bootstrap_tpcf(run,sample,shape,bins,labels)
+    bootArr[:len(tpcf),i] = tpcf
 
 def find_inclinations(run,selections):
 
