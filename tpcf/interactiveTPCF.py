@@ -35,6 +35,7 @@ class tpcfRun(object):
         self.loc = '/mnt/cluster/abs/cgm/vela2b/'
         self.binSize = 10.
         self.bootNum = 1000
+        self.ncores = 4
     
         # Time selection
         self.zRange = 0
@@ -117,36 +118,46 @@ def control(run):
     bins,labels = sample_bins(run,maxVel)#,tpcfProp)
     tpcfs = sample_tpcf(run,allVelsPath,allVelsShapes,bins,labels)
     
-    #means,stds = bootstrap(run)
+    print(allVelsShapes)
+    print(type(tpcfs),len(tpcfs),len(bins),len(labels))
+    print('Begin bootstrap')
+    means,stds = bootstrap(run,allVelsPath,allVelsShapes,bins,labels)
 
     # Put full TPCFs into dataframe
     tpcfFull = pd.DataFrame(index=labels)
-    tpcfFull = pd.DataFrame(labels)
-    for ion,tpcf in zip(run.ions,tpcfs):
+    tpcfTypes = 'full mean std'.split()
+    cols = pd.MultiIndex.from_product([run.ions,tpcfTypes])
+    tpcfFull = pd.DataFrame(index=labels,columns=cols)
+    for i,(ion,tpcf) in enumerate(zip(run.ions,tpcfs)):
         # Pad the array with nans
         padWidth = len(bins)-len(tpcf)
         if padWidth>0:
             tpcf = np.pad(tpcf,(0,padWidth),mode='constant',
                             constant_values= (np.nan))
+            mean = np.pad(means[:,i],(0,padWidth),mode='constant',
+                            constant_values= (np.nan))
+            std = np.pad(std[:,i],(0,padWidth),mode='constant',
+                            constant_values= (np.nan))
         elif padWidth<0:
             tpcf = tpcf[:len(bins)]
+            mean = means[:len(bins),i]
+            std = stds[:len(bins),i]
         
-        tpcfFull[ion] = tpcf
+        tpcfFull[ion,'full'] = tpcf
+        tpcfFull[ion,'mean'] = mean
+        tpcfFull[ion,'std'] = std
 
 
-    header = 'vel '+' '.join(run.ions)
-    header = header.split()
-    tpcfFull.columns = header
+    #header = 'vel '+' '.join(run.ions)
+    #header = header.split()
+    #tpcfFull.columns = header
+    tpcf.index.name = 'vel'
 
-    write_tpcf(tpcfFull,header,run)
+    write_tpcf(tpcfFull,run)
 
     cleanup(allVelsPath)
 
-
-
-
-
-
+    print('Done')
     
         
 def galaxy_selection(run):
@@ -249,6 +260,7 @@ def read_input():
             f.readline()
         run.binSize = int(f.readline().split()[0])
         run.bootNum = int(f.readline().split()[0])
+        run.ncores = int(f.readline().split()[0])
 
         # Read in the output filename
         for i in range(2):
@@ -372,7 +384,7 @@ def sample_bins(run,maxVel):#,tpcfProp):
     
 
 
-def sample_tpcf(run,samplePaths,sampleShapes,bins,labels,bootstrap=0):
+def sample_tpcf(run,samplePaths,sampleShapes,bins,labels,resample=0):
     '''
     Constructs the TPCF from the sample
     '''
@@ -381,8 +393,8 @@ def sample_tpcf(run,samplePaths,sampleShapes,bins,labels,bootstrap=0):
     for sPath,sShape in zip(samplePaths,sampleShapes):
         sample = np.memmap(sPath,dtype='float',mode='r',
                             shape=sShape)
-        if bootstrap!=0:
-            sample = sample[:,np.random.random.choice(sample.shape[1],
+        if resample!=0:
+            sample = sample[:,np.random.choice(sample.shape[1],
                             sample.shape[1],replace=True)]
         
         flat = sample.flatten()
@@ -393,6 +405,42 @@ def sample_tpcf(run,samplePaths,sampleShapes,bins,labels,bootstrap=0):
     return tpcfs
     
     
+def bootstrap(run,allVelsPaths,allVelsShapes,bins,labels):
+
+    '''
+    Performs bootstraps for uncertainty analysis
+    Returns mean and std dev tpcfs
+    '''
+
+    mempath = os.path.join('./tmp/','bootstrap.mmap')
+    bootArr = np.memmap(mempath,dtype='float',
+                        shape=(run.bootNum,len(bins)),mode='w+')
+    bootMean = np.zeros((len(bins),len(run.ions)))
+    bootStd = np.zeros_like(bootMean)
+
+    for i,(ion,path,shape) in enumerate(
+                                zip(run.ions,allVelsPaths,allVelsShapes)):
+        print(ion)
+        jl.Parallel(n_jobs=run.ncores,verbose=5)(
+            jl.delayed(bstrap)(bootArr,path,shape,bins,labels,bootArr,j)
+            for j in range(run.bootNum))
+            
+        print('Finished bootstrap for {0:s}'.format(ion))
+        bootMean[:,i] = np.nanmean(bootArr,axis=0)
+        bootStd[:,i] = np.nanstd(bootArr,axis=0)
+        
+    return bootMean,bootStd
+        
+
+@nb.jit
+def bstrap(run,path,shape,bins,labels,bootArr,i):
+
+    resample = 1
+    paths = [path]
+    shapes = [shape]
+    tpcf = sample_tpcf(run,paths,shapes,bins,labels,resample)
+    bootArr[i,:len(tpcf)] = tpcf
+        
     
     
 
@@ -439,7 +487,7 @@ def cleanup(paths):
         sp.call(command.format(path),shell=True)
 
 
-def write_tpcf(df,header,run):
+def write_tpcf(df,run):
     '''
     Writes the full tpcf to file with run metadata
     '''
@@ -454,7 +502,7 @@ def write_tpcf(df,header,run):
 if __name__ == '__main__':
 
     run = read_input()
-    #run.loc = '/home/sims/vela2b/'
+    run.loc = '/home/sims/vela2b/'
     print(run.print_run())
 
 
