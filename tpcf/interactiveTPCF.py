@@ -135,14 +135,15 @@ def control(run):
     for i,(ion,tpcf) in enumerate(zip(run.ions,tpcfs)):
         # Pad the array with nans
         padWidth = len(bins)-len(tpcf)
+        print(ion,padWidth,len(bins),len(tpcf),len(means[:,i]))
         if padWidth>0:
             tpcf = np.pad(tpcf,(0,padWidth),mode='constant',
                             constant_values= (np.nan))
-            if run.runBoot==1:
-                mean = np.pad(means[:,i],(0,padWidth),mode='constant',
-                                constant_values= (np.nan))
-                std = np.pad(std[:,i],(0,padWidth),mode='constant',
-                                constant_values= (np.nan))
+            #if run.runBoot==1:
+            #    mean = np.pad(means[:,i],(0,padWidth),mode='constant',
+            #                    constant_values= (np.nan))
+            #    std = np.pad(stds[:,i],(0,padWidth),mode='constant',
+            #                    constant_values= (np.nan))
         elif padWidth<0:
             tpcf = tpcf[:len(bins)]
             if run.runBoot==1:
@@ -151,6 +152,7 @@ def control(run):
         
         tpcfFull[ion,'full'] = tpcf
         if run.runBoot==1:
+            print(tpcfFull.shape,mean.shape)
             tpcfFull[ion,'mean'] = mean
             tpcfFull[ion,'std'] = std
         
@@ -524,7 +526,7 @@ def write_tpcf(df,run):
 if __name__ == '__main__':
 
     run = read_input()
-    run.loc = '/home/sims/vela2b/'
+    #run.loc = '/home/sims/vela2b/'
     print(run.print_run())
 
 
