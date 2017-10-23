@@ -16,6 +16,7 @@ import tempfile
 import sys
 import decimal
 import os
+import time
 
 
 class tpcfRun(object):
@@ -121,6 +122,9 @@ def control(run):
     
     print(allVelsShapes)
     print(type(tpcfs),len(tpcfs),len(bins),len(labels))
+    for t in tpcfs:
+        print(len(t))
+    #sys.exit()
     if run.runBoot == 1:
         print('Begin bootstrap')
         means,stds = bootstrap(run,allVelsPath,allVelsShapes,bins,labels)
@@ -139,11 +143,11 @@ def control(run):
         if padWidth>0:
             tpcf = np.pad(tpcf,(0,padWidth),mode='constant',
                             constant_values= (np.nan))
-            #if run.runBoot==1:
-            #    mean = np.pad(means[:,i],(0,padWidth),mode='constant',
-            #                    constant_values= (np.nan))
-            #    std = np.pad(stds[:,i],(0,padWidth),mode='constant',
-            #                    constant_values= (np.nan))
+            if run.runBoot==1:
+                mean = np.pad(means[:,i],(0,padWidth),mode='constant',
+                                constant_values= (np.nan))
+                std = np.pad(stds[:,i],(0,padWidth),mode='constant',
+                                constant_values= (np.nan))
         elif padWidth<0:
             tpcf = tpcf[:len(bins)]
             if run.runBoot==1:
@@ -402,6 +406,9 @@ def sample_tpcf(run,samplePaths,sampleShapes,bins,labels,resample=0):
     
     tpcfs = []
     for sPath,sShape in zip(samplePaths,sampleShapes):
+        print(sPath)
+        print(sShape)
+        print(len(bins),len(labels))
         sample = np.memmap(sPath,dtype='float',mode='r',
                             shape=sShape)
         if resample!=0:
@@ -409,9 +416,12 @@ def sample_tpcf(run,samplePaths,sampleShapes,bins,labels,resample=0):
                             sample.shape[1],replace=True)]
         
         flat = sample.flatten()
+        print(flat.shape)
         flat = flat[~np.isnan(flat)]
-        tpcf = np.sort(np.bincount(np.digitize(flat,bins)))[::-1]
-        tpcf = tpcf/tpcf.sum()
+        #tpcf = np.sort(np.bincount(np.digitize(flat,bins),minlength=len(bins)))[::-1]
+        #tpcf = tpcf/tpcf.sum()
+        tpcf,bin_edges = np.histogram(flat,bins,density=True)
+        print(len(tpcf))
         tpcfs.append(tpcf)
     return tpcfs
     
@@ -422,12 +432,15 @@ def bootstrap_tpcf(run,sample,shape,bins,labels):
     '''
 
     # Resample the data set with replacement
+    print('Start resample',flush=True)
     sample = sample[:,np.random.choice(sample.shape[1],
                     sample.shape[1],replace=True)]
     flat = sample.flatten()
     flat = flat[~np.isnan(flat)]
-    tpcf = np.sort(np.bincount(np.digitize(flat,bins)))[::-1]
+    tpcf,bin_edges = np.histogram(flat,bins,density=True)
+    #tpcf = np.sort(np.bincount(np.digitize(flat,bins)))[::-1]
     tpcf = tpcf/tpcf.sum()
+    print('End resample',flush=True)
     
     return tpcf
 
@@ -447,13 +460,18 @@ def bootstrap(run,allVelsPaths,allVelsShapes,bins,labels):
 
     for i,(ion,path,shape) in enumerate(
                                 zip(run.ions,allVelsPaths,allVelsShapes)):
-        print(ion)
+        print('\n{0:s}'.format(ion))
         sample = np.memmap(path,dtype='float',mode='r',shape=shape)
-        #run.ncores=1
-        jl.Parallel(n_jobs=run.ncores,verbose=5)(
-            jl.delayed(bstrap)(run,sample,shape,bins,labels,bootArr,j)
-            for j in range(run.bootNum))
-            
+        print('Read in {0:s} with shape = '.format(path),sample.shape)
+        run.ncores=1
+        #jl.Parallel(n_jobs=run.ncores,verbose=9)(
+        #    jl.delayed(bstrap)(run,sample,shape,bins,labels,bootArr,j)
+        #    for j in range(run.bootNum))
+    
+        for j in range(run.bootNum):
+            #bstrap(run,sample,shape,bins,labels,bootArr,j)        
+            bstrap(run,path,shape,bins,labels,bootArr,j)        
+    
         print('Finished bootstrap for {0:s}'.format(ion))
         bootMean[:,i] = np.nanmean(bootArr,axis=1)
         bootStd[:,i] = np.nanstd(bootArr,axis=1)
@@ -461,12 +479,33 @@ def bootstrap(run,allVelsPaths,allVelsShapes,bins,labels):
     return bootMean,bootStd
         
 
-@nb.jit
-def bstrap(run,sample,shape,bins,labels,bootArr,i):
+#@nb.jit
+def bstrap(run,path,shape,bins,labels,bootArr,i):
+#def bstrap(run,sample,shape,bins,labels,bootArr,i):
 
-    resample = 1
-    tpcf = bootstrap_tpcf(run,sample,shape,bins,labels)
+    sample = np.memmap(path,dtype='float',mode='r',shape=shape)
+    print('\n',i,flush=True)
+    print('Start resample',flush=True)
+    start = time.time()
+    bootCols = np.random.choice(sample.shape[1],sample.shape[1],replace=True)
+    print('Time to select columns = ',time.time()-start)
+    #sample = sample[:,bootCols]
+    sample = np.take(sample,bootCols,axis=1)
+    print('Time to make new sample = ',time.time()-start)
+    print('\tNew Sample Made',flush=True)
+    flat = sample.flatten()
+    print('\tFlattened',flush=True)
+    flat = flat[~np.isnan(flat)]
+    print('\tRemoved NaNs',flush=True)
+    #tpcf = np.sort(np.bincount(np.digitize(flat,bins)))[::-1]
+    tpcf,bin_edges = np.histogram(flat,bins,density=True)
+    print('\tTPCF made',flush=True)
+    tpcf = tpcf/tpcf.sum()
+    print('\tTPCF Normalized',flush=True)
     bootArr[:len(tpcf),i] = tpcf
+    print('End resample',flush=True)
+    #resample = 1
+    #tpcf = bootstrap_tpcf(run,sample,shape,bins,labels)
 
 def find_inclinations(run,selections):
 
