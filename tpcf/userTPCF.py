@@ -72,7 +72,9 @@ def control(run):
     # Save to disk
     print('\nSaving...')
     #full.to_csv(run.outName)
-    full.to_hdf(run.outName,'data',mode='w')
+    with pd.HDFStore(run.outName) as store:
+        store.put('data',full)
+        store.get_storer('data').attrs.metadata = run.__dict__
     print('\nDone')
 
 class tpcfRun(object):
@@ -89,6 +91,8 @@ class tpcfRun(object):
         self.iHi = 90.
         self.dLo = 0.
         self.dHi = 200.
+        self.ewLo = 0.
+        self.ewHi = 10.
         self.loc = '/mnt/cluster/abs/cgm/vela2b/'
         self.runBoot = 0
         self.binSize = 10.
@@ -255,6 +259,8 @@ def read_input():
         run.dHi = float(f.readline().split()[0])
         run.iLo = float(f.readline().split()[0])
         run.iHi = float(f.readline().split()[0])
+        run.ewLo = float(f.readline().split()[0])
+        run.ewHi = float(f.readline().split()[0])
 
         # Read in TPCF Settings
         for i in range(2):
@@ -428,7 +434,11 @@ def sample_tpcf(velPath,velShape,bins,resample=0):
     
     # Resample if part of bootstrap
     if resample==1:
-        sample = sample[:,np.random.choice(velShape[1],velShape[1],replace=True)]
+        #print('\tStart resample')
+        newCols = np.random.choice(velShape[1],velShape[1],replace=True)
+        sample = np.take(sample,newCols,axis=1)
+        #sample = sample[:,np.random.choice(velShape[1],velShape[1],replace=True)]
+        #print('\tEnd resample')
 
     # Flatten data (LOS number doesn't matter)
     sample = sample.flatten()
@@ -456,6 +466,7 @@ def bootstrap(run,velPath,velShape,bins):
     boot = np.memmap(bootPath,dtype='float',
                     shape=(run.bootNum,len(bins)),mode='w+')
     
+    print('\nCreated boot array')
     jl.Parallel(n_jobs=run.ncores,verbose=5)(
         jl.delayed(bstrap)(velPath,velShape,bins,boot,i)
         for i in range(run.bootNum))
@@ -500,7 +511,7 @@ def write_tpcf(df,run):
 if __name__ == '__main__':
 
     run = read_input()
-    run.loc = '/home/sims/vela2b/'
+    #run.loc = '/home/sims/vela2b/'
     print(run.print_run())
 
 
