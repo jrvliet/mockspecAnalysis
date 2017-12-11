@@ -480,8 +480,8 @@ def bootstrap(run,velPath,velShape,bins):
 
 def bstrap(velPath,velShape,bins,boot,i):
     tpcf = sample_tpcf(velPath,velShape,bins,1)
-    print('In bstrap i={0:d}, len(tpcf) = {1:d}, len(bins) = {2:d}'.format(i,
-                len(tpcf),len(bins)))
+    #print('In bstrap i={0:d}, len(tpcf) = {1:d}, len(bins) = {2:d}'.format(i,
+    #            len(tpcf),len(bins)))
     boot[i,:len(tpcf)] = tpcf
     
 
